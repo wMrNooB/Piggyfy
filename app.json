@@ -2,6 +2,9 @@
   "expo": {
     "name": "Budget-Tracker",
     "slug": "Budget-Tracker",
-    "version": "1.0.0"
+    "version": "1.0.0",
+    "plugins": [
+      "expo-sqlite"
+    ]
   }
 }
