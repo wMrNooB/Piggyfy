@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Plus, Minus, Clipboard } from 'react-native-feather';
 import AddTransactionModal from './AddTransactionModal';
 import SpendingLimitModal from './SpendingLimitModal';
+import Toast from 'react-native-toast-message';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
@@ -17,6 +18,10 @@ const HomeScreen = ({ navigation }) => {
   const [spendingLimit, setSpendingLimit] = useState(null);
   const [expenseTotal, setExpenseTotal] = useState(0);
   const [spendingModalVisible, setSpendingModalVisible] = useState(false);
+  const [notifiedHalf, setNotifiedHalf] = useState(false);
+  const [notified80, setNotified80] = useState(false);
+  const [notifiedExceeded, setNotifiedExceeded] = useState(false); 
+  
 
   const fetchWallet = async () => {
     try {
@@ -54,6 +59,52 @@ const HomeScreen = ({ navigation }) => {
       fetchTransactions();
     }, [])
   );
+  
+  useEffect(() => {
+    setNotifiedHalf(false);
+    setNotified80(false);
+    setNotifiedExceeded(false);
+  }, [spendingLimit]);
+
+  useEffect(() => {
+    if (spendingLimit) {
+      const ratio = expenseTotal / spendingLimit.amount;
+  
+      if (ratio >= 1 && !notifiedExceeded) {
+        Toast.show({
+          type: 'error',
+          text1: "You've exceeded your spending limit.",
+          text2: `You've spent ${expenseTotal.toFixed(2)} which is over your limit of ${spendingLimit.amount.toFixed(2)}.`,
+          position: 'top',
+          topOffset: 50,
+          visibilityTime: 3000,
+        });
+        setNotifiedExceeded(true);
+      } else if (ratio >= 0.8 && !notified80) {
+        Toast.show({
+          type: 'warn',
+          text1: "You're almost at your spending limit.",
+          text2: `Your spending is near the limit, Watch your spending!`,
+          position: 'top',
+          topOffset: 50,
+          visibilityTime: 3000,
+        });
+        setNotified80(true);
+      } else if (ratio >= 0.5 && !notifiedHalf) {
+        Toast.show({
+          type: 'info',
+          text1: "You've reached 50% of your spending limit!",
+          text2: `You've used half of your budget`,
+          position: 'top',
+          topOffset: 50,
+          visibilityTime: 3000,
+        });
+        setNotifiedHalf(true);
+      }
+    }
+  }, [expenseTotal, spendingLimit]);
+  
+  
 
   useEffect(() => {
     if (wallet) {
@@ -64,9 +115,23 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [wallet, transactions]);
 
+  const getTotalExpensesForLimit = (limit) => {
+    const computedThreshold = new Date(limit.startDate).getTime();
+    const setAtThreshold = new Date(limit.setAt).getTime();
+    const threshold = Math.max(computedThreshold, setAtThreshold);
+    return transactions
+      .filter(t =>
+        t.type === 'expense' &&
+        t.category === limit.category.name &&
+        new Date(t.date).getTime() >= threshold
+      )
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+  };
+  
+
   useEffect(() => {
     if (spendingLimit) {
-      const total = getTotalExpensesFrom(new Date(spendingLimit.startDate));
+      const total = getTotalExpensesForLimit(spendingLimit);
       setExpenseTotal(total);
     }
   }, [transactions, spendingLimit]);
@@ -89,7 +154,8 @@ const HomeScreen = ({ navigation }) => {
 
   const groupTransactionsByDate = () => {
     const groups = {};
-    [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date))
+    [...transactions]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
       .forEach((transaction) => {
         const date = formatDate(transaction.date);
         if (!groups[date]) groups[date] = [];
@@ -101,7 +167,6 @@ const HomeScreen = ({ navigation }) => {
   const formatCurrency = (amount) => {
     return `${wallet?.currency} ${Number(amount).toFixed(2)}`;
   };
-
 
   const getTotalIncome = () => {
     return transactions
@@ -115,29 +180,37 @@ const HomeScreen = ({ navigation }) => {
       .reduce((sum, t) => sum + Number(t.amount), 0);
   };
 
-  const getTotalExpensesFrom = (startDate) => {
-    const threshold = new Date(startDate).getTime();
-    return transactions
-      .filter(t => 
-        t.type === 'expense' &&
-        new Date(t.date).getTime() >= threshold
-      )
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-  };
-
   const getColorForLimit = () => {
     if (!spendingLimit) return '#000';
     const ratio = expenseTotal / spendingLimit.amount;
-    if (ratio < 0.5) return 'green';
+    if (ratio < 0.5) return '#4CAF50';
     if (ratio < 0.8) return 'orange';
     return 'red';
   };
+  const getSpentColor = () => {
+    if (!spendingLimit) return '#000';
+    const ratio = expenseTotal / spendingLimit.amount;
+    if (ratio < 0.5) return '#4CAF50';
+    if (ratio < 0.8) return '#f39c12'; 
+    return 'red';
+  };
+  
+  const getLeftColor = () => {
+    if (!spendingLimit) return '#000';
+    const ratio = expenseTotal / spendingLimit.amount;
+    if (ratio < 0.5) return '#2196F3'; 
+    if (ratio < 1) return '#9b59b6'; 
+    return 'black'; 
+  };
+  
 
   const handleSaveSpendingLimit = (limitData) => {
     setSpendingLimit(limitData);
-    setExpenseTotal(getTotalExpensesFrom(limitData.startDate));
+    const total = getTotalExpensesForLimit(limitData);
+    setExpenseTotal(total);
   };
   
+
   const calculateProgress = () => {
     if (!spendingLimit || spendingLimit.amount === 0) return 0;
     return Math.min((expenseTotal / spendingLimit.amount) * 100, 100);
@@ -161,7 +234,7 @@ const HomeScreen = ({ navigation }) => {
           />
           <Text style={[styles.transactionAmount, { 
             color: isExpense ? '#FF5252' : '#4CAF50',
-            fontWeight: '700'  // Make amount bolder
+            fontWeight: '700'
           }]}>
             {formatCurrency(transaction.amount)}
           </Text>
@@ -256,35 +329,47 @@ const HomeScreen = ({ navigation }) => {
 
       <TouchableOpacity
         style={[styles.card, styles.budgetCard, styles.cardShadow]}
-        onPress={() => setSpendingModalVisible(true)}>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardLabel}>Spending Limit</Text>
-          {spendingLimit ? (
-            <>
-              <Text style={[styles.cardAmount, { color: getColorForLimit() }]}>
-                {formatCurrency(spendingLimit.amount)}
-              </Text>
-              <Text style={styles.periodText}>
-                {spendingLimit.period === 'custom'
-                  ? formatDate(spendingLimit.startDate)
-                  : spendingLimit.period.charAt(0).toUpperCase() + spendingLimit.period.slice(1)}
-              </Text>
-              <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBar, { width: `${calculateProgress()}%`, backgroundColor: getColorForLimit() }]} />
-              </View>
-              <Text style={[styles.expenseText, { color: getColorForLimit() }]}>
-                {formatCurrency(expenseTotal)} spent
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.cardAmount}>Not Set</Text>
-          )}
-          <View style={styles.addButtonRow}>
-            <View style={[styles.addButton, styles.blueCircle]}>
-              <Clipboard stroke="#fff" width={12} height={12} />
-            </View>
+        onPress={() => setSpendingModalVisible(true)}
+      >
+       <View style={styles.cardContent}>
+        <Text style={styles.cardLabel}>Spending Limit</Text>
+         {spendingLimit ? (
+          <>
+        <Text style={[styles.cardAmount, { color: getColorForLimit() }]}>
+          {formatCurrency(spendingLimit.amount)}
+        </Text>
+        <Text style={styles.categoryText}>
+          {spendingLimit.category.name}
+        </Text>
+        <View style={styles.progressBarContainer}>
+          <View
+            style={[
+              styles.progressBar,
+              {
+                width: `${calculateProgress()}%`,
+                backgroundColor: getColorForLimit(),
+              },
+            ]}
+          />
+        </View>
+        <View style={styles.limitDetails}>
+          <Text style={[styles.limitDetailText, {color: getSpentColor()}]}>
+            {formatCurrency(expenseTotal)} spent
+          </Text>
+          <Text style={[styles.limitDetailText, {color : getLeftColor()}]}>
+            {formatCurrency(spendingLimit.amount - expenseTotal)} left
+          </Text>
+        </View>
+       </>
+      ) : (
+        <Text style={styles.cardAmount}>Not Set</Text>
+      )}
+      <View style={styles.addButtonRow}>
+        <View style={[styles.addButton, styles.blueCircle]}>
+          <Clipboard stroke="#fff" width={12} height={12} />
+          </View>
             <Text style={[styles.addButtonText, { color: '#2196F3' }]}>
-              {spendingLimit ? 'Edit Limit' : 'Set Limit'}
+             {spendingLimit ? 'Edit Limit' : 'Set Limit'}
             </Text>
           </View>
         </View>
@@ -483,9 +568,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  categoryText: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: 'black',
+    marginVertical: 4,
+  },
   progressBarContainer: {
     width: '80%',
-    height: 4,
+    height: 3,
     backgroundColor: '#E0E0E0',
     borderRadius: 2,
     marginVertical: 4,
@@ -495,6 +586,17 @@ const styles = StyleSheet.create({
   progressBar: {
     height: '100%',
     borderRadius: 2,
+  },
+  limitDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '80%',
+    alignSelf: 'center',
+    marginTop: 4,
+  },
+  limitDetailText: {
+    fontWeight:'bold',
+    fontSize: 14,
   },
   transactionAmount: {
     fontSize: 16,

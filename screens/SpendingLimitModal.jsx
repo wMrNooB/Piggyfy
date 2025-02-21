@@ -1,19 +1,54 @@
-import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, TextInput, StyleSheet, Alert, ScrollView, Keyboard, TouchableWithoutFeedback } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, Text, Modal, TouchableOpacity, TextInput, StyleSheet, Alert, 
+  ScrollView, Keyboard, TouchableWithoutFeedback 
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PERIODS = [
-  { label: 'Custom', value: 'custom' },
   { label: 'Daily', value: 'daily' },
   { label: 'Weekly', value: 'weekly' },
   { label: 'Monthly', value: 'monthly' },
+  { label: 'Custom', value: 'custom' },
 ];
 
 const SpendingLimitModal = ({ visible, onClose, onSave }) => {
   const [limitAmount, setLimitAmount] = useState('');
-  const [period, setPeriod] = useState('custom');
-  const [customDate, setCustomDate] = useState(new Date());
+  const [limitDate, setLimitDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [period, setPeriod] = useState('daily');
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const type = 'expense';
+        const builtInCategories =
+          type === 'expense'
+            ? [
+                { id: '1', name: 'Food' },
+                { id: '2', name: 'Transport' },
+                { id: '3', name: 'Shopping' },
+                { id: '4', name: 'Bills' },
+                { id: '5', name: 'Entertainment' },
+              ]
+            : [
+                { id: '1', name: 'Salary' },
+                { id: '2', name: 'Bonus' },
+                { id: '3', name: 'Gift' },
+                { id: '4', name: 'Other' },
+              ];
+        const storedCategories = await AsyncStorage.getItem(`userCategories_${type}`);
+        const userCategories = storedCategories ? JSON.parse(storedCategories) : [];
+        setCategories([...builtInCategories, ...userCategories]);
+      } catch (error) {
+        console.error('Error loading categories:', error);
+      }
+    };
+    loadCategories();
+  }, [visible]);
 
   const formatDate = (date) => {
     if (!date) return '';
@@ -24,20 +59,52 @@ const SpendingLimitModal = ({ visible, onClose, onSave }) => {
     return `${day}/${month}/${year}`;
   };
 
+  const computeStartDate = () => {
+    const now = new Date();
+    if (period === 'daily') {
+      now.setHours(0, 0, 0, 0);
+      return now;
+    } else if (period === 'weekly') {
+      const day = now.getDay();
+      const diff = now.getDay() === 0 ? 6 : now.getDay() - 1;
+      now.setDate(now.getDate() - diff);
+      now.setHours(0, 0, 0, 0);
+      return now;
+    } else if (period === 'monthly') {
+      now.setDate(1);
+      now.setHours(0, 0, 0, 0);
+      return now;
+    } else {
+      return limitDate;
+    }
+  };
+
   const handleSave = () => {
     const amount = parseFloat(limitAmount);
     if (isNaN(amount) || amount <= 0) {
       Alert.alert('Error', 'Please enter a valid limit amount.');
       return;
     }
-    const startDate = period === 'custom' ? customDate : new Date();
-    const spendingLimit = { amount, period, startDate };
+    if (!selectedCategory) {
+      Alert.alert('Error', 'Please select a category.');
+      return;
+    }
+    const startDate = computeStartDate(); 
+    const spendingLimit = {
+      amount,
+      startDate,
+      category: selectedCategory,
+      period,
+      setAt: new Date().toISOString(),
+    };
     onSave(spendingLimit);
     setLimitAmount('');
-    setPeriod('weekly');
-    setCustomDate(new Date());
+    setLimitDate(new Date());
+    setSelectedCategory(null);
+    setPeriod('daily');
     onClose();
   };
+  
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -45,7 +112,7 @@ const SpendingLimitModal = ({ visible, onClose, onSave }) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Set Spending Limit</Text>
-
+            
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Limit Amount</Text>
               <View style={styles.amountContainer}>
@@ -68,49 +135,77 @@ const SpendingLimitModal = ({ visible, onClose, onSave }) => {
               style={styles.periodScrollView}
               contentContainerStyle={{ paddingHorizontal: 4 }}
             >
-              {PERIODS.map((periodOption) => (
+              {PERIODS.map((option) => (
                 <TouchableOpacity
-                  key={periodOption.value}
+                  key={option.value}
                   style={[
                     styles.periodButton,
-                    period === periodOption.value && styles.selectedPeriodButton,
+                    period === option.value && styles.selectedPeriodButton,
                   ]}
-                  onPress={() => setPeriod(periodOption.value)}
+                  onPress={() => setPeriod(option.value)}
                 >
-                  <Text
-                    style={[
-                      styles.periodButtonText,
-                      period === periodOption.value && styles.selectedPeriodButtonText,
-                    ]}
-                  >
-                    {periodOption.label}
+                  <Text style={[
+                    styles.periodButtonText,
+                    period === option.value && styles.selectedPeriodButtonText
+                  ]}>
+                    {option.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
             {period === 'custom' && (
-              <TouchableOpacity onPress={() => setShowDatePicker(true)}>
-                <View style={styles.customDateInput}>
-                  <Text style={styles.customDateText}>
-                    {formatDate(customDate) || 'dd/mm/yyyy'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              <>
+                <Text style={styles.label}>Select Date:</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+                  <View style={styles.dateInput}>
+                    <Text style={styles.dateText}>
+                      {formatDate(limitDate) || 'dd/mm/yyyy'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={limitDate}
+                    mode="date"
+                    display="default"
+                    onChange={(event, selectedDate) => {
+                      setShowDatePicker(false);
+                      if (selectedDate) setLimitDate(selectedDate);
+                    }}
+                  />
+                )}
+              </>
             )}
 
-            {showDatePicker && (
-              <DateTimePicker
-                value={customDate}
-                mode="date"
-                display="default"
-                onChange={(event, selectedDate) => {
-                  setShowDatePicker(false);
-                  if (selectedDate) setCustomDate(selectedDate);
-                }}
-              />
-            )}
-            
+            <Text style={styles.label}>Select Category:</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoryScrollView}
+              contentContainerStyle={{ paddingHorizontal: 4 }}
+            >
+              {categories.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[
+                    styles.categoryButton,
+                    selectedCategory && selectedCategory.id === cat.id && styles.selectedCategoryButton,
+                  ]}
+                  onPress={() => setSelectedCategory(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.categoryButtonText,
+                      selectedCategory && selectedCategory.id === cat.id && styles.selectedCategoryButtonText,
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
             <View style={styles.buttonContainer}>
               <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={onClose}>
                 <Text style={styles.buttonText}>Cancel</Text>
@@ -119,6 +214,7 @@ const SpendingLimitModal = ({ visible, onClose, onSave }) => {
                 <Text style={styles.saveButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
+
           </View>
         </View>
       </TouchableWithoutFeedback>
@@ -159,7 +255,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 10,
-    alignSelf:'center'
+    alignSelf: 'center'
   },
   amountContainer: {
     flexDirection: 'row',
@@ -168,11 +264,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: '#FE79A1',
     paddingBottom: 8,
-  },
-  currencyText: {
-    fontSize: 32,
-    color: '#333',
-    marginRight: 4,
   },
   amountInput: {
     fontSize: 32,
@@ -190,16 +281,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   periodButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    marginRight: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    marginRight: 8,
+    marginBottom: 8,
   },
   selectedPeriodButton: {
     backgroundColor: '#FE79A1',
-    borderColor: '#FE79A1',
   },
   periodButtonText: {
     color: '#666',
@@ -208,17 +298,38 @@ const styles = StyleSheet.create({
   selectedPeriodButtonText: {
     color: 'white',
   },
-  customDateInput: {
+  dateInput: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 12,
     padding: 12,
     marginBottom: 20,
   },
-  customDateText: {
+  dateText: {
     fontSize: 16,
     color: '#333',
     textAlign: 'center',
+  },
+  categoryScrollView: {
+    marginBottom: 20,
+  },
+  categoryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  selectedCategoryButton: {
+    backgroundColor: '#FE79A1',
+  },
+  categoryButtonText: {
+    color: '#666',
+    fontWeight: '500',
+  },
+  selectedCategoryButtonText: {
+    color: 'white',
   },
   buttonContainer: {
     flexDirection: 'row',

@@ -74,7 +74,7 @@ const AddTransactionModal = ({ visible, onClose, type, onAddTransaction }) => {
       amount: parsedAmount,
       category: finalCategory,
       description: description.trim(),
-      date: date.toISOString(),
+      date: new Date().toISOString(),
       type,
     };
 
@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
   },
   categoryChipText: {
     color: '#666',
-    fontSize: 14,
+    fontWeight: '500',
   },
   selectedCategoryChipText: {
     color: 'white',

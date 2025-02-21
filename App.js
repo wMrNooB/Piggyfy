@@ -7,11 +7,14 @@ import OnBoardingScreen3 from './screens/OnBoardingScreen3';
 import WalletScreen from './screens/WalletScreen';
 import MainTabNavigator from './MainTabNavigator';
 import UserScreen from './screens/UserScreen';
+import Toast from 'react-native-toast-message';
+import toastConfig from './toastConfig';
 
 const Stack = createStackNavigator();
 
 export default function App() {
   return (
+    <>
     <NavigationContainer>
       <Stack.Navigator 
         initialRouteName="OnBoarding"
@@ -28,5 +31,7 @@ export default function App() {
         <Stack.Screen name="Main" component={MainTabNavigator} />
       </Stack.Navigator>
     </NavigationContainer>
+    <Toast config={toastConfig}/>
+    </>
   );
 }
